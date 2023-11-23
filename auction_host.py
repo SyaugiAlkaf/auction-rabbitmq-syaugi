@@ -1,12 +1,12 @@
 import pika
 import json
 import time
-import random
+import os
 import operator
 import tkinter as tk
 
 class AuctionProvider:
-    def __init__(self, auction_id, starting_price, max_duration):
+    def __init__(self, auction_id, starting_price, max_duration, amqp_url):
         self.auction_id = auction_id
         self.starting_price = starting_price
         self.max_duration = max_duration
@@ -23,8 +23,12 @@ class AuctionProvider:
         self.current_bid_label.pack()
         self.winning_bid_label.pack()
 
+        self.amqp_url = amqp_url
+
     def start_auction(self):
-        connection = pika.BlockingConnection(pika.ConnectionParameters('localhost'))
+        params = pika.URLParameters(self.amqp_url)
+        connection = pika.BlockingConnection(params)
+
         channel = connection.channel()
 
         exchange_name = 'auction_events'
@@ -81,7 +85,10 @@ class AuctionProvider:
 if __name__ == '__main__':
     auction_id = "12345"
     starting_price = 100
-    max_duration = 5
+    max_duration = 30
 
-    provider = AuctionProvider(auction_id, starting_price, max_duration)
+    amqp_url = os.environ.get('albatross-01.rmq.cloudamqp.com',
+                              'amqps://zhmbpgxq:2IT7TpRnUaF62oQxjIcupAvAMxkuHvHo@albatross.rmq.cloudamqp.com/zhmbpgxq')
+
+    provider = AuctionProvider(auction_id, starting_price, max_duration, amqp_url)
     provider.start_auction()
