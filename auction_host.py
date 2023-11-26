@@ -75,6 +75,7 @@ class AuctionApp:
     def start_auction(self):
         if self.selected_queue == "":
             print("Please select an queue first.")
+            messagebox.showerror("Error", "Please select an queue first.")
             return
 
         # nama_barang = self.entry_nama.get()
