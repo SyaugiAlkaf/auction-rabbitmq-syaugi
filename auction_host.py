@@ -15,10 +15,10 @@ class AuctionApp:
         self.auction_status_label = tk.Label(root, text="Auction Status: Not Running")
         self.auction_status_label.pack()
 
-        self.current_bid_label = tk.Label(root, text="Current Bid: $")
+        self.current_bid_label = tk.Label(root, text="Current Bid: Rp.")
         self.current_bid_label.pack()
 
-        self.winning_bid_label = tk.Label(root, text="Winning Bid: $")
+        self.winning_bid_label = tk.Label(root, text="Winning Bid: Rp.")
         self.winning_bid_label.pack()
 
         self.time_left_label = tk.Label(root, text="Time Left: ")
@@ -122,7 +122,7 @@ class AuctionApp:
                     self.highest_bid = bid_amount
                     self.highest_bidder = bidder_id
 
-                self.current_bid_label.config(text=f"Current Bid: ${bid_amount}")
+                self.current_bid_label.config(text=f"Current Bid: Rp.{bid_amount}")
                 self.root.update()
             else:
                 print("Invalid bid data received")
@@ -171,7 +171,7 @@ class AuctionApp:
             routing_key='info',
             body=json.dumps(highest_bid_data)
         )
-        print(f"Data sent to Host's exchange [auction_isRunning: Running, auction_id: {nama_barang}, highest_bid: {self.highest_bid}, highest_bidder: {self.highest_bidder}, time_left_seconds: {time_left}]")
+        print(f"Data sent to Host's queue [auction_isRunning: Running, auction_id: {nama_barang}, highest_bid: {self.highest_bid}, highest_bidder: {self.highest_bidder}, time_left_seconds: {time_left}]")
         connection.close()
 
     def send_highest_bid_time(self, nama_barang, harga_barang, end_time):
@@ -200,7 +200,7 @@ class AuctionApp:
             routing_key='info',
             body=json.dumps(highest_bid_data)
         )
-        print(f"Data sent to Host's exchange [auction_isRunning: Running, auction_id: {nama_barang}, highest_bid: {self.highest_bid}, highest_bidder: {self.highest_bidder}, time_left_seconds: {time_left}]")
+        print(f"Data sent to Host's queue [auction_isRunning: Running, auction_id: {nama_barang}, highest_bid: {self.highest_bid}, highest_bidder: {self.highest_bidder}, time_left_seconds: {time_left}]")
         connection.close()
 
     def display_winner_and_top_bids(self):
@@ -209,12 +209,12 @@ class AuctionApp:
             self.highest_bidder, self.highest_bid = sorted_bids[0]
             winner_label = tk.Label(self.root, text=f"Winning Bidder: {self.highest_bidder}")
             winner_label.pack()
-            self.winning_bid_label.config(text=f"Winning Bid: ${self.highest_bid}")
+            self.winning_bid_label.config(text=f"Winning Bid: Rp.{self.highest_bid}")
 
-            print(f"Winner: {self.highest_bidder}, Winning Bid: ${self.highest_bid}")
+            print(f"Winner: {self.highest_bidder}, Winning Bid: Rp.{self.highest_bid}")
             print("Top 5 Bids:")
             for i, (bidder, bid_amount) in enumerate(sorted_bids[:5], start=1):
-                print(f"{i}. {bidder}: ${bid_amount}")
+                print(f"{i}. {bidder}: Rp.{bid_amount}")
         else:
             print("No bids received.")
 
