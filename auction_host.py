@@ -24,11 +24,23 @@ class AuctionApp:
         self.time_left_label = tk.Label(root, text="Time Left: ")
         self.time_left_label.pack()
 
-        # Entry widgets for user input
-        self.label_nama = tk.Label(root, text="Nama Barang:")
-        self.label_nama.pack()
-        self.entry_nama = tk.Entry(root)
-        self.entry_nama.pack()
+        # # Entry widgets for user input
+        # self.label_nama = tk.Label(root, text="Nama Barang:")
+        # self.label_nama.pack()
+        # self.entry_nama = tk.Entry(root)
+        # self.entry_nama.pack()
+
+        self.exchange_label = tk.Label(self.root, text="Pilih Barang Lelang:")
+        self.exchange_label.pack()
+
+        self.mobil_button = tk.Button(self.root, text="Mobil", command=lambda: self.select_queue("mobil"))
+        self.mobil_button.pack()
+
+        self.motor_button = tk.Button(self.root, text="Motor", command=lambda: self.select_queue("motor"))
+        self.motor_button.pack()
+
+        self.rumah_button = tk.Button(self.root, text="Rumah", command=lambda: self.select_queue("rumah"))
+        self.rumah_button.pack()
 
         self.label_harga = tk.Label(root, text="Harga Barang (Rp):")
         self.label_harga.pack()
@@ -44,6 +56,8 @@ class AuctionApp:
         self.start_button = tk.Button(root, text="Start Auction", command=self.start_auction)
         self.start_button.pack()
 
+        self.selected_queue = ""
+
         self.auction_running = False
         self.bidders = {}
         self.highest_bidder = None
@@ -54,8 +68,17 @@ class AuctionApp:
 
         self.root.after(1000, self.update_auction_status)
 
+    def select_queue(self, queue):
+        self.selected_queue = queue
+        print(f"Selected Queue: {queue}")
+
     def start_auction(self):
-        nama_barang = self.entry_nama.get()
+        if self.selected_queue == "":
+            print("Please select an queue first.")
+            return
+
+        # nama_barang = self.entry_nama.get()
+        nama_barang = self.selected_queue
         harga_barang = self.entry_harga.get()
         waktu_lelang = self.entry_waktu.get()
 
@@ -76,7 +99,9 @@ class AuctionApp:
             "auction_id": nama_barang,
             "starting_price": int(harga_barang),
         }
-        channel.basic_publish(exchange='auction_direct_exchange', routing_key=nama_barang, body=json.dumps(initial_auction_data))
+        channel.basic_publish(exchange='auction_direct_exchange',
+                              routing_key=nama_barang,
+                              body=json.dumps(initial_auction_data))
         print(f"Starting Auction (Auction ID: {nama_barang})")
 
         result = channel.queue_declare(queue=nama_barang, exclusive=True)
@@ -118,18 +143,23 @@ class AuctionApp:
         self.auction_running = False
         self.auction_status_label.config(text="Auction Status: Not Running")
         self.time_left_label.config(text=f"Time Left: 0 seconds")
+        self.send_winner(nama_barang, harga_barang, end_time)
 
-    def send_highest_bid_time(self, nama_barang, harga_barang, end_time):
+    def send_winner(self, nama_barang, harga_barang, end_time):
         params = pika.URLParameters(self.amqp_url)
         connection = pika.BlockingConnection(params)
         channel = connection.channel()
-        channel.exchange_declare(exchange="host_exchange", exchange_type='fanout')
+        channel.exchange_declare(exchange="auction_direct_exchange", exchange_type='direct')
+        result = channel.queue_declare(queue='info', exclusive=True)
+        queue_name = result.method.queue
+        channel.queue_bind(exchange='auction_direct_exchange', queue=queue_name, routing_key='info')
 
         time_left = int(end_time - time.time())
         if time_left < 0:
             time_left = 0  # Ensure it's not negative
 
         highest_bid_data = {
+            "auction_isRunning": "Not Running",
             "auction_id": nama_barang,
             "starting_bid": harga_barang,
             "highest_bid": self.highest_bid,
@@ -137,11 +167,40 @@ class AuctionApp:
             "time_left_seconds": time_left
         }
         channel.basic_publish(
-            exchange="host_exchange",  # Separate exchange for host data
-            routing_key='',
+            exchange="auction_direct_exchange",
+            routing_key='info',
             body=json.dumps(highest_bid_data)
         )
-        print(f"Data sent to Host's exchange [Auction_id: {nama_barang}, highest_bid: {self.highest_bid}, highest_bidder: {self.highest_bidder}, time_left_seconds: {time_left}]")
+        print(f"Data sent to Host's exchange [auction_isRunning: Running, auction_id: {nama_barang}, highest_bid: {self.highest_bid}, highest_bidder: {self.highest_bidder}, time_left_seconds: {time_left}]")
+        connection.close()
+
+    def send_highest_bid_time(self, nama_barang, harga_barang, end_time):
+        params = pika.URLParameters(self.amqp_url)
+        connection = pika.BlockingConnection(params)
+        channel = connection.channel()
+        channel.exchange_declare(exchange="auction_direct_exchange", exchange_type='direct')
+        result = channel.queue_declare(queue='info', exclusive=True)
+        queue_name = result.method.queue
+        channel.queue_bind(exchange='auction_direct_exchange', queue=queue_name, routing_key='info')
+
+        time_left = int(end_time - time.time())
+        if time_left < 0:
+            time_left = 0  # Ensure it's not negative
+
+        highest_bid_data = {
+            "auction_isRunning": "Running",
+            "auction_id": nama_barang,
+            "starting_bid": harga_barang,
+            "highest_bid": self.highest_bid,
+            "highest_bidder": None,
+            "time_left_seconds": time_left
+        }
+        channel.basic_publish(
+            exchange="auction_direct_exchange",
+            routing_key='info',
+            body=json.dumps(highest_bid_data)
+        )
+        print(f"Data sent to Host's exchange [auction_isRunning: Running, auction_id: {nama_barang}, highest_bid: {self.highest_bid}, highest_bidder: {self.highest_bidder}, time_left_seconds: {time_left}]")
         connection.close()
 
     def display_winner_and_top_bids(self):
