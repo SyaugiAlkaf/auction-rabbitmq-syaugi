@@ -109,39 +109,28 @@ class AuctionApp:
         channel = connection.channel()
         channel.exchange_declare(exchange='auction_direct_exchange', exchange_type='direct')
 
-        # initial_auction_data = {
-        #     "auction_id": nama_barang,
-        #     "starting_price": int(harga_barang),
-        # }
-        # channel.basic_publish(exchange='auction_direct_exchange',
-        #                       routing_key=nama_barang,
-        #                       body=json.dumps(initial_auction_data))
-
         print(f"Starting Auction (Auction ID: {nama_barang})")
 
         result = channel.queue_declare(queue=nama_barang, durable=True)
         queue_name = result.method.queue
         channel.queue_bind(exchange='auction_direct_exchange', queue=queue_name, routing_key=nama_barang)
 
+        # Inside the bid_callback function in the host code
+
         def bid_callback(ch, method, properties, body):
             bid_data = json.loads(body)
             bidder_id = bid_data.get('bidder_id')
             bid_amount = bid_data.get('bid_amount')
 
-            if bidder_id and bid_amount is not None:  # Check if bid_amount is not None
-                bid_amount = int(bid_amount)  # Convert to int after validation
-                self.highest_bid = int(self.highest_bid)
+            if bidder_id and bid_amount and bid_amount.isdigit():
+                bid_amount = int(bid_amount)
 
-                self.bidders[bidder_id] = bid_amount
-                print(f"{bidder_id} placed a bid: ${bid_amount}")
+                if bid_amount > self.highest_bid:
+                    self.highest_bid = bid_amount
+                    self.highest_bidder = bidder_id
+                    print(f"{bidder_id} placed a bid: ${bid_amount} (New highest bid)")
 
-                # Check if the incoming bid is higher than the current highest bid
-                if bid_amount >= self.highest_bid:
-                    if self.highest_bidder is None or (bid_amount == self.highest_bid and bidder_id < self.highest_bidder):
-                        self.highest_bid = bid_amount
-                        self.highest_bidder = bidder_id
-
-                self.current_bid_label.config(text=f"Current Bid: Rp.{bid_amount}")
+                self.current_bid_label.config(text=f"Current Bid: Rp.{self.highest_bid}")
                 self.root.update()
             else:
                 print("Invalid or missing bid data received")
