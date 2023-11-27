@@ -57,6 +57,7 @@ class AuctionApp:
         self.start_button.pack()
 
         self.selected_queue = ""
+        self.selected_pub_queue = ""
 
         self.auction_running = False
         self.bidders = {}
@@ -70,7 +71,9 @@ class AuctionApp:
 
     def select_queue(self, queue):
         self.selected_queue = queue
+        self.selected_pub_queue = queue + "_info"
         print(f"Selected Queue: {queue}")
+        print(f"Selected Queue Info: {self.selected_pub_queue}")
 
     def delete_queue(self, queue_name):
         params = pika.URLParameters(self.amqp_url)
@@ -162,9 +165,9 @@ class AuctionApp:
         connection = pika.BlockingConnection(params)
         channel = connection.channel()
         channel.exchange_declare(exchange="auction_direct_exchange", exchange_type='direct')
-        result = channel.queue_declare(queue='info', durable=True)
+        result = channel.queue_declare(queue=self.selected_pub_queue, durable=True)
         queue_name = result.method.queue
-        channel.queue_bind(exchange='auction_direct_exchange', queue=queue_name, routing_key='info')
+        channel.queue_bind(exchange='auction_direct_exchange', queue=queue_name, routing_key=self.selected_pub_queue)
 
         time_left = int(end_time - time.time())
         if time_left < 0:
@@ -180,11 +183,11 @@ class AuctionApp:
         }
         channel.basic_publish(
             exchange="auction_direct_exchange",
-            routing_key='info',
+            routing_key=self.selected_pub_queue,
             body=json.dumps(highest_bid_data)
         )
         print(f"Data sent to Host's queue [auction_isRunning: Running, auction_id: {nama_barang}, highest_bid: {self.highest_bid}, highest_bidder: {self.highest_bidder}, time_left_seconds: {time_left}]")
-        channel.queue_delete(queue='info')
+        channel.queue_delete(queue=self.selected_pub_queue)
         connection.close()
 
     def send_highest_bid_time(self, nama_barang, harga_barang, end_time):
@@ -192,9 +195,9 @@ class AuctionApp:
         connection = pika.BlockingConnection(params)
         channel = connection.channel()
         channel.exchange_declare(exchange="auction_direct_exchange", exchange_type='direct')
-        result = channel.queue_declare(queue='info', durable=True)
+        result = channel.queue_declare(queue=self.selected_pub_queue, durable=True)
         queue_name = result.method.queue
-        channel.queue_bind(exchange='auction_direct_exchange', queue=queue_name, routing_key='info')
+        channel.queue_bind(exchange='auction_direct_exchange', queue=queue_name, routing_key=self.selected_pub_queue)
 
         time_left = int(end_time - time.time())
         if time_left < 0:
@@ -210,7 +213,7 @@ class AuctionApp:
         }
         channel.basic_publish(
             exchange="auction_direct_exchange",
-            routing_key='info',
+            routing_key=self.selected_pub_queue,
             body=json.dumps(highest_bid_data)
         )
         print(f"Data sent to Host's queue [auction_isRunning: Running, auction_id: {nama_barang}, highest_bid: {self.highest_bid}, highest_bidder: {self.highest_bidder}, time_left_seconds: {time_left}]")
