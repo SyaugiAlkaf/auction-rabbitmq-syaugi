@@ -55,10 +55,13 @@ class AuctionBidder:
         self.rumah_button.pack()
 
         self.selected_queue = ""
+        self.selected_pub_queue = ""
 
     def select_queue(self, queue):
         self.selected_queue = queue
+        self.selected_pub_queue = queue + "_info"
         print(f"Selected queue: {queue}")
+        print(f"Selected queue: {self.selected_pub_queue}")
 
         # Check if the desired queue exists in the exchange before proceeding
         if self.check_queue_exists(queue):
@@ -112,7 +115,7 @@ class AuctionBidder:
             tk.Label(self.root, text=info_text).pack()
 
         def consume_messages():
-            self.channel.basic_consume(queue='info', on_message_callback=callback, auto_ack=True)
+            self.channel.basic_consume(queue=self.selected_pub_queue, on_message_callback=callback, auto_ack=True)
             self.channel.start_consuming()
 
         # Start consuming messages in a separate thread
@@ -154,7 +157,7 @@ class AuctionBidder:
             else:
                 print("Auction is not running. Unable to place bid.")
 
-        self.channel.basic_consume(queue='info', on_message_callback=callback, auto_ack=True)
+        self.channel.basic_consume(queue=self.selected_pub_queue, on_message_callback=callback, auto_ack=True)
         self.channel.start_consuming()
 
 if __name__ == '__main__':
