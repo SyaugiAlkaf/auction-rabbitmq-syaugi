@@ -161,8 +161,6 @@ class AuctionBidder:
 
         # Closing the connection
         connection.close()
-        # Update the displayed information after placing a bid
-        self.display_queue_info()
 
 if __name__ == '__main__':
     amqp_url = "amqps://zhmbpgxq:2IT7TpRnUaF62oQxjIcupAvAMxkuHvHo@albatross.rmq.cloudamqp.com/zhmbpgxq"
