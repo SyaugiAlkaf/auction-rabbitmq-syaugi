@@ -3,6 +3,7 @@ import json
 import tkinter as tk
 import tkinter.messagebox as messagebox
 from datetime import datetime
+import threading
 
 class AuctionBidder:
     def __init__(self, amqp_url):
@@ -18,13 +19,21 @@ class AuctionBidder:
 
         self.submit_button = tk.Button(self.root, text="Submit", command=self.submit_id)
         self.submit_button.pack()
-        self.root.mainloop()
 
         self.auction_status = ""
         self.starting_bid = ""
         self.highest_bid = ""
         self.time_left = ""
         self.bid_winner = ""
+
+        # Establish RabbitMQ connection and channel
+        self.setup_rabbitmq()
+
+        self.root.mainloop()
+
+    def setup_rabbitmq(self):
+        self.connection = pika.BlockingConnection(pika.URLParameters(self.amqp_url))
+        self.channel = self.connection.channel()
 
     def submit_id(self):
         self.bidder_id = self.id_entry.get()
@@ -63,56 +72,53 @@ class AuctionBidder:
 
     def check_queue_exists(self, queue_name):
         try:
-            params = pika.URLParameters(self.amqp_url)
-            connection = pika.BlockingConnection(params)
-            channel = connection.channel()
-
-            method_frame = channel.queue_declare(queue=queue_name, passive=True)
-
-            connection.close()
-
+            method_frame = self.channel.queue_declare(queue=queue_name, passive=True)
             return method_frame.method.queue == queue_name
         except pika.exceptions.ChannelClosedByBroker as e:
             if e.args[0] == 404:
                 return False
             else:
                 raise e
-
     def display_queue_info(self):
-        def update_info():
-            params = pika.URLParameters(self.amqp_url)
-            connection = pika.BlockingConnection(params)
-            channel = connection.channel()
+        print("Displaying queue info...")
 
-            method_frame, header_frame, body = channel.basic_get(queue='info')
+        def callback(ch, method, properties, body):
+            print("Updating info...")
 
-            if method_frame and method_frame.NAME != 'Basic.GetEmpty':
-                info_data = json.loads(body.decode())
-                self.auction_status = info_data.get('auction_isRunning')
-                self.starting_bid = info_data.get('starting_bid')
-                self.highest_bid = info_data.get('highest_bid')
-                self.time_left = info_data.get('time_left_seconds')
-                self.bid_winner = info_data.get('highest_bidder')
+            # If body is bytes, decode it to a string for readability
+            body_str = body.decode('utf-8')
+            print("Body (decoded):", body_str)
 
-                self.root.title(f"Queue Info: {self.selected_queue}")
+            info_data = json.loads(body.decode())
+            auction_status = info_data.get('auction_isRunning')
+            starting_bid = info_data.get('starting_bid')
+            highest_bid = info_data.get('highest_bid')
+            time_left = info_data.get('time_left_seconds')
+            bid_winner = info_data.get('highest_bidder')
 
-                info_text = f"Auction Status: {self.auction_status}\n"
-                info_text += f"Starting Bid: {self.starting_bid}\n"
-                info_text += f"Highest Bid: {self.highest_bid}\n"
-                info_text += f"Time Left to Bid: {self.time_left} seconds\n"
-                info_text += f"Bid Winner ID: {self.bid_winner}\n"
+            self.root.title(f"Queue Info: {self.selected_queue}")
 
-                info_label.config(text=info_text)
-            else:
-                print("No information available about the auction.")
+            info_text = f"Auction Status: {auction_status}\n"
+            info_text += f"Starting Bid: {starting_bid}\n"
+            info_text += f"Highest Bid: {highest_bid}\n"
+            info_text += f"Time Left to Bid: {time_left} seconds\n"
+            info_text += f"Bid Winner ID: {bid_winner}\n"
 
-            connection.close()
-            self.root.after(1000, update_info)  # Schedule the next update after 1 second
+            # Clear previous info labels before updating
+            for widget in self.root.winfo_children():
+                if isinstance(widget, tk.Label):
+                    widget.destroy()
 
-        info_label = tk.Label(self.root, text="", justify=tk.LEFT)
-        info_label.pack()
+            tk.Label(self.root, text=info_text).pack()
 
-        update_info()
+        def consume_messages():
+            self.channel.basic_consume(queue='info', on_message_callback=callback, auto_ack=True)
+            self.channel.start_consuming()
+
+        # Start consuming messages in a separate thread
+        consume_thread = threading.Thread(target=consume_messages)
+        consume_thread.daemon = True  # Allow the program to exit even if the thread is running
+        consume_thread.start()
 
     def bid_ui(self):
         self.bid_label = tk.Label(self.root, text="Bid amount:")
@@ -125,42 +131,31 @@ class AuctionBidder:
         self.bid_button.pack()
 
     def place_bid(self):
-        params = pika.URLParameters(self.amqp_url)
-        connection = pika.BlockingConnection(params)
-        channel = connection.channel()
+        def callback(ch, method, properties, body):
+            print("Received info from the queue...")
 
-        # Declaring exchange (if not already declared)
-        channel.exchange_declare(exchange='auction_direct_exchange', exchange_type='direct')
+            info_data = json.loads(body)
+            auction_status = info_data.get('auction_isRunning')
 
-        # Retrieve information about the auction from the 'info' queue
-        method_frame, header_frame, body = channel.basic_get(queue='info')
+            if auction_status == "Running":
+                bid_amount = self.bid_entry.get()
+                bid_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                bid_data = {
+                    "bidder_id": self.bidder_id,
+                    "bid_amount": bid_amount,
+                    "bid_timestamp": bid_timestamp,
+                }
 
-        if method_frame and method_frame.NAME == 'Basic.GetEmpty':
-            print("No information available about the auction.")
-            connection.close()
-            return
+                # Publishing bid data to the specified exchange and routing key (queue)
+                self.channel.basic_publish(exchange='auction_direct_exchange', routing_key=self.selected_queue,
+                                           body=json.dumps(bid_data))
+                print(
+                    f"{self.bidder_id} Placed a Bid of ${bid_amount} at {bid_timestamp} to Queue {self.selected_queue}")
+            else:
+                print("Auction is not running. Unable to place bid.")
 
-        info_data = json.loads(body)
-        auction_status = info_data.get('auction_isRunning')
-
-        if auction_status == "Running":
-            bid_amount = self.bid_entry.get()
-            bid_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            bid_data = {
-                "bidder_id": self.bidder_id,
-                "bid_amount": bid_amount,
-                "bid_timestamp": bid_timestamp,
-            }
-
-            # Publishing bid data to the specified exchange and routing key (queue)
-            channel.basic_publish(exchange='auction_direct_exchange', routing_key=self.selected_queue,
-                                  body=json.dumps(bid_data))
-            print(f"{self.bidder_id} Placed a Bid of ${bid_amount} at {bid_timestamp} to Queue {self.selected_queue}")
-        else:
-            print("Auction is not running. Unable to place bid.")
-
-        # Closing the connection
-        connection.close()
+        self.channel.basic_consume(queue='info', on_message_callback=callback, auto_ack=True)
+        self.channel.start_consuming()
 
 if __name__ == '__main__':
     amqp_url = "amqps://zhmbpgxq:2IT7TpRnUaF62oQxjIcupAvAMxkuHvHo@albatross.rmq.cloudamqp.com/zhmbpgxq"
