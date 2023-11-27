@@ -72,11 +72,24 @@ class AuctionApp:
         self.selected_queue = queue
         print(f"Selected Queue: {queue}")
 
+    def delete_queue(self, queue_name):
+        params = pika.URLParameters(self.amqp_url)
+        connection = pika.BlockingConnection(params)
+        channel = connection.channel()
+
+        channel.queue_delete(queue=queue_name)
+
+        connection.close()
+
     def start_auction(self):
         if self.selected_queue == "":
             print("Please select an queue first.")
             messagebox.showerror("Error", "Please select an queue first.")
             return
+
+        # Deleting the queue if it exists before starting a new auction
+        self.delete_queue(self.selected_queue)
+        self.delete_queue('info')
 
         # nama_barang = self.entry_nama.get()
         nama_barang = self.selected_queue
@@ -96,16 +109,17 @@ class AuctionApp:
         channel = connection.channel()
         channel.exchange_declare(exchange='auction_direct_exchange', exchange_type='direct')
 
-        initial_auction_data = {
-            "auction_id": nama_barang,
-            "starting_price": int(harga_barang),
-        }
-        channel.basic_publish(exchange='auction_direct_exchange',
-                              routing_key=nama_barang,
-                              body=json.dumps(initial_auction_data))
+        # initial_auction_data = {
+        #     "auction_id": nama_barang,
+        #     "starting_price": int(harga_barang),
+        # }
+        # channel.basic_publish(exchange='auction_direct_exchange',
+        #                       routing_key=nama_barang,
+        #                       body=json.dumps(initial_auction_data))
+
         print(f"Starting Auction (Auction ID: {nama_barang})")
 
-        result = channel.queue_declare(queue=nama_barang, exclusive=True)
+        result = channel.queue_declare(queue=nama_barang, durable=True)
         queue_name = result.method.queue
         channel.queue_bind(exchange='auction_direct_exchange', queue=queue_name, routing_key=nama_barang)
 
@@ -114,19 +128,23 @@ class AuctionApp:
             bidder_id = bid_data.get('bidder_id')
             bid_amount = bid_data.get('bid_amount')
 
-            if bidder_id and bid_amount:
+            if bidder_id and bid_amount is not None:  # Check if bid_amount is not None
+                bid_amount = int(bid_amount)  # Convert to int after validation
+                self.highest_bid = int(self.highest_bid)
+
                 self.bidders[bidder_id] = bid_amount
                 print(f"{bidder_id} placed a bid: ${bid_amount}")
 
                 # Check if the incoming bid is higher than the current highest bid
-                if bid_amount > self.highest_bid:
-                    self.highest_bid = bid_amount
-                    self.highest_bidder = bidder_id
+                if bid_amount >= self.highest_bid:
+                    if self.highest_bidder is None or (bid_amount == self.highest_bid and bidder_id < self.highest_bidder):
+                        self.highest_bid = bid_amount
+                        self.highest_bidder = bidder_id
 
                 self.current_bid_label.config(text=f"Current Bid: Rp.{bid_amount}")
                 self.root.update()
             else:
-                print("Invalid bid data received")
+                print("Invalid or missing bid data received")
 
         channel.basic_consume(queue=queue_name, on_message_callback=bid_callback, auto_ack=True)
 
@@ -146,12 +164,16 @@ class AuctionApp:
         self.time_left_label.config(text=f"Time Left: 0 seconds")
         self.send_winner(nama_barang, harga_barang, end_time)
 
+        # Deleting the queue after the auction ends
+        if self.auction_id:
+            self.delete_queue(self.auction_id)
+
     def send_winner(self, nama_barang, harga_barang, end_time):
         params = pika.URLParameters(self.amqp_url)
         connection = pika.BlockingConnection(params)
         channel = connection.channel()
         channel.exchange_declare(exchange="auction_direct_exchange", exchange_type='direct')
-        result = channel.queue_declare(queue='info', exclusive=True)
+        result = channel.queue_declare(queue='info', durable=True)
         queue_name = result.method.queue
         channel.queue_bind(exchange='auction_direct_exchange', queue=queue_name, routing_key='info')
 
@@ -173,6 +195,7 @@ class AuctionApp:
             body=json.dumps(highest_bid_data)
         )
         print(f"Data sent to Host's queue [auction_isRunning: Running, auction_id: {nama_barang}, highest_bid: {self.highest_bid}, highest_bidder: {self.highest_bidder}, time_left_seconds: {time_left}]")
+        channel.queue_delete(queue='info')
         connection.close()
 
     def send_highest_bid_time(self, nama_barang, harga_barang, end_time):
@@ -180,7 +203,7 @@ class AuctionApp:
         connection = pika.BlockingConnection(params)
         channel = connection.channel()
         channel.exchange_declare(exchange="auction_direct_exchange", exchange_type='direct')
-        result = channel.queue_declare(queue='info', exclusive=True)
+        result = channel.queue_declare(queue='info', durable=True)
         queue_name = result.method.queue
         channel.queue_bind(exchange='auction_direct_exchange', queue=queue_name, routing_key='info')
 
