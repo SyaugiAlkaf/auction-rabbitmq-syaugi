@@ -69,11 +69,6 @@ class AuctionApp:
 
         self.root.after(1000, self.update_auction_status)
 
-    def select_queue(self, queue):
-        self.selected_queue = queue
-        self.selected_pub_queue = queue + "_info"
-        print(f"Selected Queue: {queue}")
-        print(f"Selected Queue Info: {self.selected_pub_queue}")
 
     def delete_queue(self, queue_name):
         params = pika.URLParameters(self.amqp_url)
@@ -84,11 +79,6 @@ class AuctionApp:
 
         connection.close()
 
-    def start_auction(self):
-        if self.selected_queue == "":
-            print("Please select an queue first.")
-            messagebox.showerror("Error", "Please select an queue first.")
-            return
 
         # Deleting the queue if it exists before starting a new auction
         self.delete_queue(self.selected_queue)
