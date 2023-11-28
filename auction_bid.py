@@ -21,11 +21,16 @@ class AuctionBidder:
         self.submit_button = tk.Button(self.root, text="Submit", command=self.submit_id)
         self.submit_button.pack()
 
+        self.quit_button = tk.Button(self.root, text="Quit", command=self.quit_bidding, state=tk.DISABLED)
+        self.quit_button.pack()
+
         self.auction_status = ""
         self.starting_bid = ""
         self.highest_bid = ""
         self.time_left = ""
         self.bid_winner = ""
+
+        self.submitted = False  # Flag to track if ID is submitted
 
         # Establish RabbitMQ connection and channel
         self.setup_rabbitmq()
@@ -37,8 +42,14 @@ class AuctionBidder:
         self.channel = self.connection.channel()
 
     def submit_id(self):
-        self.bidder_id = self.id_entry.get()
-        self.auction_ui()
+        if not self.submitted:
+            self.bidder_id = self.id_entry.get()
+            self.submitted = True
+            self.auction_ui()
+            self.submit_button.config(state=tk.DISABLED)
+            self.quit_button.config(state=tk.NORMAL)
+        else:
+            messagebox.showinfo("Already Submitted", "You've already submitted your ID.")
 
     def auction_ui(self):
         self.root.title(f"Auction Bidder: {self.bidder_id}")
@@ -178,6 +189,9 @@ class AuctionBidder:
         consume_thread.daemon = True
         consume_thread.start()
 
+    def quit_bidding(self):
+        if messagebox.askyesno("Quit Bidding", "Are you sure you want to quit bidding?"):
+            self.root.destroy()
 
 if __name__ == '__main__':
     amqp_url = "amqps://zhmbpgxq:2IT7TpRnUaF62oQxjIcupAvAMxkuHvHo@albatross.rmq.cloudamqp.com/zhmbpgxq"
