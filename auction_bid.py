@@ -5,6 +5,7 @@ import tkinter.messagebox as messagebox
 from datetime import datetime
 import threading
 
+
 class AuctionBidder:
     def __init__(self, amqp_url):
         self.amqp_url = amqp_url
@@ -75,13 +76,52 @@ class AuctionBidder:
 
     def check_queue_exists(self, queue_name):
         try:
-            method_frame = self.channel.queue_declare(queue=queue_name, passive=True)
-            return method_frame.method.queue == queue_name
+            if self.channel.is_open:
+                method_frame = self.channel.queue_declare(queue=queue_name, passive=True)
+                return method_frame.method.queue == queue_name
+            else:
+                # Re-establish the connection and channel if closed
+                self.setup_rabbitmq()
+                return False
         except pika.exceptions.ChannelClosedByBroker as e:
             if e.args[0] == 404:
                 return False
             else:
                 raise e
+
+    def start_message_consumption(self):
+        def callback(ch, method, properties, body):
+            print("Received info from the queue...")
+
+            # Your callback logic here...
+
+            info_data = json.loads(body)
+            auction_status = info_data.get('auction_isRunning')
+
+            if auction_status == "Running":
+                bid_amount = self.bid_entry.get()
+                bid_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                bid_data = {
+                    "bidder_id": self.bidder_id,
+                    "bid_amount": bid_amount,
+                    "bid_timestamp": bid_timestamp,
+                }
+
+                # Publishing bid data to the specified exchange and routing key (queue)
+                self.channel.basic_publish(exchange='auction_direct_exchange', routing_key=self.selected_queue,
+                                           body=json.dumps(bid_data))
+                print(
+                    f"{self.bidder_id} Placed a Bid of ${bid_amount} at {bid_timestamp} to Queue {self.selected_queue}")
+            else:
+                print("Auction is not running. Unable to place bid.")
+
+        self.channel.basic_consume(
+            queue=self.selected_pub_queue,
+            on_message_callback=callback,
+            auto_ack=True
+        )
+        self.channel.start_consuming()
+
     def display_queue_info(self):
         print("Displaying queue info...")
 
@@ -134,33 +174,12 @@ class AuctionBidder:
         self.bid_button.pack()
 
     def place_bid(self):
-        def callback(ch, method, properties, body):
-            print("Received info from the queue...")
+        consume_thread = threading.Thread(target=self.start_message_consumption)
+        consume_thread.daemon = True
+        consume_thread.start()
 
-            info_data = json.loads(body)
-            auction_status = info_data.get('auction_isRunning')
-
-            if auction_status == "Running":
-                bid_amount = self.bid_entry.get()
-                bid_timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                bid_data = {
-                    "bidder_id": self.bidder_id,
-                    "bid_amount": bid_amount,
-                    "bid_timestamp": bid_timestamp,
-                }
-
-                # Publishing bid data to the specified exchange and routing key (queue)
-                self.channel.basic_publish(exchange='auction_direct_exchange', routing_key=self.selected_queue,
-                                           body=json.dumps(bid_data))
-                print(
-                    f"{self.bidder_id} Placed a Bid of ${bid_amount} at {bid_timestamp} to Queue {self.selected_queue}")
-            else:
-                print("Auction is not running. Unable to place bid.")
-
-        self.channel.basic_consume(queue=self.selected_pub_queue, on_message_callback=callback, auto_ack=True)
-        self.channel.start_consuming()
 
 if __name__ == '__main__':
     amqp_url = "amqps://zhmbpgxq:2IT7TpRnUaF62oQxjIcupAvAMxkuHvHo@albatross.rmq.cloudamqp.com/zhmbpgxq"
-    
+
     bidder = AuctionBidder(amqp_url)
